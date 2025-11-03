@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Flappy Bird - HTML only</title>
+  <style>
+    :root{--bg:#70c5ce;--ground:#ded895;--pipe:#2ea44f;--bird:#ffd23f}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    body{display:flex;align-items:center;justify-content:center;background:linear-gradient(#9ee6f0,#70c5ce);}
+    .wrap{width:360px;max-width:90vw}
+    canvas{display:block;width:100%;background:transparent;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15)}
+    .ui{display:flex;justify-content:space-between;align-items:center;margin-top:10px;color:#034;}
+    button{background:#034;color:#fff;border:none;padding:.5rem 1rem;border-radius:6px;cursor:pointer}
+    .center{display:flex;flex-direction:column;align-items:center;gap:.5rem}
+    .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .panel{background:rgba(255,255,255,0.95);padding:12px 16px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);}
+    .small{font-size:.9rem;color:#034}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div style="position:relative">
+      <canvas id="game" width="288" height="512" aria-label="Flappy Bird game canvas"></canvas>
+      <div class="overlay" id="overlay" aria-hidden="false">
+        <div class="panel center" id="startPanel">
+          <h2 style="margin:0">Flappy Bird</h2>
+          <div class="small">Tap / Click / Space to flap</div>
+          <button id="startBtn">Start</button>
+        </div>
+      </div>
+    </div>
+    <div class="ui">
+      <div>Score: <strong id="score">0</strong></div>
+      <div style="text-align:right">
+        <div class="small">Best: <span id="best">0</span></div>
+        <button id="restart">Restart</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simple Flappy Bird clone (single file) - accessible controls: click/tap/space/enter
+    (function(){
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const overlay = document.getElementById('overlay');
+      const startPanel = document.getElementById('startPanel');
+      const startBtn = document.getElementById('startBtn');
+      const scoreEl = document.getElementById('score');
+      const bestEl = document.getElementById('best');
+      const restartBtn = document.getElementById('restart');
+
+      // Logical size (kept constant) - canvas CSS will scale it responsively
+      const W = canvas.width; const H = canvas.height;
+
+      // Game state
+      let bird, pipes, frame, score, best, running, req;
+
+      // Load best score from localStorage
+      try{ best = parseInt(localStorage.getItem('flappy_best')||'0',10) || 0 }catch(e){ best = 0 }
+      bestEl.textContent = best;
+
+      function reset(){
+        bird = {x:60, y:H/2, r:12, vy:0};
+        pipes = [];
+        frame = 0;
+        score = 0;
+        running = false;
+        scoreEl.textContent = score;
+        overlay.style.pointerEvents = 'auto';
+        startPanel.style.display = '';
+        overlay.setAttribute('aria-hidden','false');
+      }
+
+      function startGame(){
+        bird.vy = 0; frame = 0; pipes = []; score = 0; running = true;
+        overlay.style.pointerEvents = 'none';
+        startPanel.style.display = 'none';
+        overlay.setAttribute('aria-hidden','true');
+        scoreEl.textContent = score;
+        loop();
+      }
+
+      function flap(){ if(!running){ startGame(); return; } bird.vy = -6 }
+
+      function update(){
+        if(!running) return;
+        frame++;
+        // gravity
+        bird.vy += 0.35; bird.y += bird.vy;
+        // create pipes
+        if(frame % 90 === 0){
+          const gap = 110; // gap size
+          const top = 40 + Math.random()*(H - gap - 140);
+          pipes.push({x:W, top:top, bottom: top+gap, passed:false});
+        }
+        // move pipes
+        for(let i=pipes.length-1;i>=0;i--){
+          const p = pipes[i]; p.x -= 2.4;
+          // check passed for score
+          if(!p.passed && p.x + 24 < bird.x - bird.r){ p.passed = true; score++; scoreEl.textContent = score; if(score>best){ best = score; bestEl.textContent = best; try{ localStorage.setItem('flappy_best', best) }catch(e){} } }
+          // remove offscreen
+          if(p.x < -60) pipes.splice(i,1);
+          // collision
+          if(collides(bird, p)) endGame();
+        }
+        // ground / ceiling collision
+        if(bird.y + bird.r > H-48 || bird.y - bird.r < 0){ endGame() }
+      }
+
+      function collides(b, p){
+        // pipe rectangles: top => y in [0, p.top], bottom => [p.bottom, H]
+        const px1 = p.x; const px2 = p.x + 52; // pipe width
+        const by = b.y; const bx = b.x; const br = b.r;
+        // circle-rect collision approx: check nearest point
+        // top pipe rect
+        if(circleRect(bx,by,br, px1, 0, px2-px1, p.top)) return true;
+        // bottom pipe rect
+        if(circleRect(bx,by,br, px1, p.bottom, px2-px1, H - p.bottom)) return true;
+        return false;
+      }
+
+      function circleRect(cx,cy,r, rx,ry,rw,rh){
+        // nearest point
+        const nx = Math.max(rx, Math.min(cx, rx+rw));
+        const ny = Math.max(ry, Math.min(cy, ry+rh));
+        const dx = cx - nx; const dy = cy - ny;
+        return (dx*dx + dy*dy) <= r*r;
+      }
+
+      function endGame(){
+        if(!running) return; running = false;
+        // show panel with score
+        startPanel.innerHTML = `<h3 style="margin:0">Game Over</h3><div class=small>Score: ${score}</div><button id=again>Play Again</button>`;
+        overlay.style.pointerEvents = 'auto'; startPanel.style.display = ''; overlay.setAttribute('aria-hidden','false');
+        const again = document.getElementById('again'); if(again) again.addEventListener('click', ()=>{ startPanel.innerHTML = ''; startPanel.appendChild(startBtn); startPanel.appendChild(document.createElement('div')); startPanel.querySelector('.small')?.remove(); startGame(); });
+        cancelAnimationFrame(req);
+      }
+
+      function draw(){
+        // clear
+        ctx.clearRect(0,0,W,H);
+        // sky done by css canvas background
+        // pipes
+        for(const p of pipes){
+          ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--pipe') || '#2ea44f';
+          // top pipe
+          ctx.fillRect(p.x, 0, 52, p.top);
+          // bottom pipe
+          ctx.fillRect(p.x, p.bottom, 52, H - p.bottom - 48);
+          // pipe caps (simple)
+          ctx.fillStyle = '#1f6f33'; ctx.fillRect(p.x-6, p.top-8, 64, 8);
+          ctx.fillRect(p.x-6, p.bottom, 64, 8);
+        }
+        // ground
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ground') || '#ded895';
+        ctx.fillRect(0, H-48, W, 48);
+        // bird (circle with wing)
+        ctx.save(); ctx.translate(bird.x, bird.y);
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bird') || '#ffd23f';
+        ctx.beginPath(); ctx.arc(0,0,bird.r,0,Math.PI*2); ctx.fill();
+        // eye
+        ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(4, -4, 2,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+
+      function loop(){
+        update(); draw();
+        req = requestAnimationFrame(loop);
+      }
+
+      // input handlers
+      window.addEventListener('keydown', (e)=>{ if(e.code==='Space' || e.code==='ArrowUp' || e.code==='Enter'){ e.preventDefault(); flap(); } });
+      canvas.addEventListener('click', (e)=> flap());
+      canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); flap(); });
+      startBtn.addEventListener('click', ()=>{ startGame(); });
+      restartBtn.addEventListener('click', ()=>{ reset(); });
+
+      // initial panel content
+      startPanel.innerHTML = '';
+      startPanel.appendChild(startBtn);
+      const instruction = document.createElement('div'); instruction.className='small'; instruction.textContent='Tap / Click / Space to flap';
+      startPanel.appendChild(instruction);
+
+      reset();
+      // accessibility: focus start button
+      startBtn.focus();
+
+      // resize canvas internal pixels when CSS scales to keep crispness
+      function fit(){
+        const ratio = window.devicePixelRatio || 1;
+        const cssW = canvas.clientWidth; const cssH = canvas.clientHeight;
+        canvas.width = Math.floor((cssW) * ratio);
+        canvas.height = Math.floor((cssH) * ratio);
+        ctx.setTransform(ratio,0,0,ratio,0,0);
+      }
+      // initial fit and keep measured logical W/H in sync
+      // We want the internal logical size to remain similar to W/H; keep CSS scaling instead
+      function maintain(){
+        // set CSS dimensions to preserve aspect ratio
+        canvas.style.height = Math.round((canvas.clientWidth / (W/H))) + 'px';
+        fit();
+      }
+      window.addEventListener('resize', () => { maintain(); });
+      // call once
+      maintain();
+
+    })();
+  </script>
+</body>
+</html>
